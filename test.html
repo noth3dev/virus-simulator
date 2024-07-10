@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>웜 바이러스 시뮬레이터</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; background-color: #f5f5f5; }
+        #network { border: 2px solid #333; margin-top: 20px; cursor: default; background-color: #fff; }
+        .controls { margin: 20px; padding: 20px; background-color: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; align-items: center; }
+        .controls input, .controls button, .controls select { margin: 5px; padding: 10px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; }
+        .controls button { background-color: #4CAF50; color: white; cursor: pointer; }
+        .controls button:hover { background-color: #45a049; }
+        .controls label { display: block; margin: 10px 0 5px 0; font-size: 16px; }
+        .controls p { margin: 10px 0 0 0; font-size: 16px; }
+        .help { margin: 20px; max-width: 800px; padding: 20px; background-color: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }
+        .help h2 { margin-top: 0; }
+        .help ul { padding-left: 20px; }
+    </style>
+</head>
+<body>
+<h1>웜 바이러스 시뮬레이터</h1>
+<div class="controls">
+    <label>네트워크 형태:
+        <select id="networkType">
+            <option value="star">스타형</option>
+            <option value="ring">링형</option>
+            <option value="complete">완전 연결형</option>
+            <option value="random">무작위 연결형</option>
+        </select>
+    </label>
+    <label>노드 수: <input type="number" id="numNodes" value="10" min="3"></label>
+    <label>감염 확률: <input type="number" id="infectionProb" value="0.3" step="0.01" min="0" max="1"></label>
+    <label>단계 수: <input type="number" id="steps" value="10" min="1"></label>
+    <button onclick="generateNetwork()">네트워크 생성</button>
+    <button onclick="startSimulation()">시뮬레이션 시작</button>
+    <button onclick="resetNetwork()">리셋</button>
+    <p id="infectionTime"></p>
+</div>
+<canvas id="network" width="800" height="600"></canvas>
+<div class="help">
+    <h2>도움말</h2>
+    <p>이 시뮬레이터는 웜 바이러스가 네트워크에서 어떻게 전파되는지를 시뮬레이션합니다. 사용법은 다음과 같습니다:</p>
+    <ul>
+        <li><strong>네트워크 생성:</strong> 네트워크 형태와 노드 수를 선택한 후 '네트워크 생성' 버튼을 클릭하여 네트워크를 생성합니다.</li>
+        <li><strong>노드 이동:</strong> 노드를 클릭하고 드래그하여 위치를 변경할 수 있습니다.</li>
+        <li><strong>노드 삭제:</strong> 노드를 우클릭하여 삭제할 수 있습니다.</li>
+        <li><strong>시뮬레이션 시작:</strong> '시뮬레이션 시작' 버튼을 클릭하여 시뮬레이션을 시작합니다. 첫 번째 노드가 감염되고, 설정된 감염 확률에 따라 바이러스가 전파됩니다.</li>
+        <li><strong>리셋:</strong> '리셋' 버튼을 클릭하여 네트워크를 초기화합니다.</li>
+    </ul>
+</div>
+
+<script>
+    const canvas = document.getElementById('network');
+    const ctx = canvas.getContext('2d');
+    let nodes = [];
+    let edges = [];
+    let infectionProb = 0.3;
+    let steps = 10;
+    let infectedNodes = new Set();
+    let selectedNode = null;
+    let draggingNode = null;
+    let offsetX, offsetY;
+
+    function generateNetwork() {
+        const networkType = document.getElementById('networkType').value;
+        const numNodes = parseInt(document.getElementById('numNodes').value);
+        nodes = [];
+        edges = [];
+        let angleStep, centerX, centerY, radius;
+
+        switch (networkType) {
+            case 'star':
+                centerX = canvas.width / 2;
+                centerY = canvas.height / 2;
+                nodes.push({ x: centerX, y: centerY, infected: false });
+                radius = 200;
+                angleStep = (2 * Math.PI) / (numNodes - 1);
+                for (let i = 1; i < numNodes; i++) {
+                    const angle = i * angleStep;
+                    const x = centerX + radius * Math.cos(angle);
+                    const y = centerY + radius * Math.sin(angle);
+                    nodes.push({ x, y, infected: false });
+                    edges.push({ from: nodes[0], to: nodes[i] });
+                }
+                break;
+
+            case 'ring':
+                centerX = canvas.width / 2;
+                centerY = canvas.height / 2;
+                radius = 200;
+                angleStep = (2 * Math.PI) / numNodes;
+                for (let i = 0; i < numNodes; i++) {
+                    const angle = i * angleStep;
+                    const x = centerX + radius * Math.cos(angle);
+                    const y = centerY + radius * Math.sin(angle);
+                    nodes.push({ x, y, infected: false });
+                    if (i > 0) {
+                        edges.push({ from: nodes[i - 1], to: nodes[i] });
+                    }
+                }
+                edges.push({ from: nodes[numNodes - 1], to: nodes[0] });
+                break;
+
+            case 'complete':
+                for (let i = 0; i < numNodes; i++) {
+                    nodes.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, infected: false });
+                }
+                for (let i = 0; i < numNodes; i++) {
+                    for (let j = i + 1; j < numNodes; j++) {
+                        edges.push({ from: nodes[i], to: nodes[j] });
+                    }
+                }
+                break;
+
+            case 'random':
+                for (let i = 0; i < numNodes; i++) {
+                    nodes.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, infected: false });
+                }
+                const edgeProb = 0.3; // 엣지가 생성될 확률
+                for (let i = 0; i < numNodes; i++) {
+                    for (let j = i + 1; j < numNodes; j++) {
+                        if (Math.random() < edgeProb) {
+                            edges.push({ from: nodes[i], to: nodes[j] });
+                        }
+                    }
+                }
+                break;
+        }
+
+        draw();
+    }
+
+    canvas.addEventListener('mousedown', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const node = findNode(x, y);
+        if (event.button === 2 && node) {
+            // 우클릭으로 노드 삭제
+            nodes = nodes.filter(n => n !== node);
+            edges = edges.filter(e => e.from !== node && e.to !== node);
+            draw();
+        } else if (node) {
+            draggingNode = node;
+            offsetX = x - node.x;
+            offsetY = y - node.y;
+        }
+    });
+
+    canvas.addEventListener('mousemove', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const node = findNode(x, y);
+        canvas.style.cursor = node ? 'pointer' : 'default';
+        if (draggingNode) {
+            draggingNode.x = x - offsetX;
+            draggingNode.y = y - offsetY;
+            draw();
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        draggingNode = null;
+    });
+
+    canvas.addEventListener('contextmenu', (event) => {
+        event.preventDefault(); // 우클릭 메뉴 비활성화
+    });
+
+    canvas.addEventListener('click', (event) => {
+        if (draggingNode) return; // If dragging, ignore click event
+
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const node = findNode(x, y);
+
+        if (selectedNode) {
+            if (node && selectedNode !== node) {
+                edges.push({ from: selectedNode, to: node });
+                selectedNode = null;
+            } else {
+                selectedNode = null;
+            }
+        } else {
+            selectedNode = node;
+        }
+        draw();
+    });
+
+    function findNode(x, y) {
+        return nodes.find(node => Math.hypot(node.x - x, node.y - y) < 10);
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        edges.forEach(edge => {
+            ctx.beginPath();
+            ctx.moveTo(edge.from.x, edge.from.y);
+            ctx.lineTo(edge.to.x, edge.to.y);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+        nodes.forEach(node => {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 10, 0, 2 * Math.PI);
+            ctx.fillStyle = node.infected ? '#e74c3c' : '#2ecc71';
+            ctx.fill();
+            ctx.strokeStyle = node === selectedNode ? '#f1c40f' : '#34495e';
+            ctx.lineWidth = node === selectedNode ? 3 : 1;
+            ctx.stroke();
+        });
+    }
+
+    function resetNetwork() {
+        nodes = [];
+        edges = [];
+        infectedNodes = new Set();
+        selectedNode = null;
+        document.getElementById('infectionTime').textContent = '';
+        draw();
+    }
+
+    function startSimulation() {
+        infectionProb = parseFloat(document.getElementById('infectionProb').value);
+        steps = parseInt(document.getElementById('steps').value);
+        if (nodes.length > 0) {
+            nodes[0].infected = true;  // Initially infect the first node
+            infectedNodes = new Set([nodes[0]]);
+            const startTime = performance.now();
+            simulate(0, startTime);
+        }
+    }
+
+    function simulate(step, startTime) {
+        if (step >= steps) return;
+        const newInfected = new Set(infectedNodes); // copy current infected nodes
+
+        infectedNodes.forEach(node => {
+            edges.forEach(edge => {
+                if (edge.from === node && Math.random() < infectionProb) {
+                    edge.to.infected = true;
+                    newInfected.add(edge.to);
+                } else if (edge.to === node && Math.random() < infectionProb) {
+                    edge.from.infected = true;
+                    newInfected.add(edge.from);
+                }
+            });
+        });
+
+        infectedNodes = newInfected;
+        draw();
+
+        if (infectedNodes.size === nodes.length) {
+            const endTime = performance.now();
+            document.getElementById('infectionTime').textContent = `전체 감염에 걸린 단계: ${step}, 시간: ${(endTime - startTime) / 1000}초`;
+        } else {
+            setTimeout(() => simulate(step + 1, startTime), 1000); // 단계별로 감염이 확산되도록 1초 지연
+        }
+    }
+
+    draw();
+</script>
+</body>
+</html>
